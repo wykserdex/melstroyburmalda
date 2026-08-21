@@ -226,6 +226,45 @@ the workers. Commands:
 - `/stats` — counts by status
 - `/blacklist` — instructions for blocking / unblocking contacts
 
+### Approval flow
+
+Nothing is ever sent to a real person without an explicit approval. As soon
+as the pipeline drafts a message, the bot pushes a card to every user in
+`BOT_ALLOWED_USERS`:
+
+```
+🔎 Нашёл вакансию — писать?
+
+Ищу Python-разработчика для Telegram-бота
+📡 Работа СПб
+🎯 Скоринг: 0.82
+👤 Получатель: Алиса (@alice)
+💡 Потребность: разработка Telegram-бота
+
+✉️ Текст, который уйдёт:
+Здравствуйте! Увидел вашу вакансию…
+
+out_a1b2c3
+        [✅ Approve]  [❌ Reject]  [👁 Full text]
+```
+
+Nothing leaves the process until **Approve** is pressed: `SendMessageUseCase`
+refuses to send an outreach that is not in `APPROVED` status, so even a stray
+send task cannot deliver a draft. Rejecting (or refusing to send) leaves the
+draft intact — it stays visible in `/pending` and can still be approved later.
+
+Two ways to skip the prompt, both opt-in:
+
+- `AUTO_APPROVE=true` — high-confidence leads (score ≥ `CONFIDENCE_THRESHOLD`)
+  are approved automatically and **no card is sent**. Everything below the
+  threshold still asks.
+- `python -m telegram_outreach outreach approve <id>` — CLI approval, works
+  without the bot.
+
+If the bot is disabled or Telegram is unreachable, the notification is skipped
+with a warning — the draft is already persisted, so nothing is lost and
+`/pending` still lists it.
+
 ---
 
 ## 13. Tests

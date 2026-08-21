@@ -172,35 +172,17 @@ def build(settings: Settings | None = None) -> Container:
         run_followup=RunFollowupUseCase(telegram, uow_factory, settings),
     )
 
-    # --- Workers -----------------------------------------------------------
-    workers = Workers(
-        scanner=ScannerWorker(use_cases.scan, use_cases.parse, queue, settings),
-        analyzer=AnalyzerWorker(
-            use_cases.parse,
-            use_cases.dedupe,
-            use_cases.qualify,
-            use_cases.generate,
-            queue,
-            uow_factory,
-            settings,
-        ),
-        outreach=OutreachWorker(use_cases.send, queue, uow_factory, settings),
-        reply=ReplyWorker(use_cases.process_reply, incoming_queue),
-        followup=FollowupWorker(
-            use_cases.schedule_followup,
-            use_cases.run_followup,
-            queue,
-            uow_factory,
-            settings,
-        ),
-    )
-
     # --- Bot (optional) ----------------------------------------------------
+    # Собирается ДО воркеров: анализатору нотификатор нужен в конструкторе,
+    # иначе пришлось бы дописывать его в уже готовый объект.
     bot_handlers: BotHandlers | None = None
     bot_client = None
+    bot_notifier: BotNotifier | None = None
     if settings.bot_token and settings.bot_allowed_user_ids:
         # Imported lazily to avoid hard dependency on Telethon's bot API at import time
         from telethon import TelegramClient as TgClient  # noqa: WPS433
+
+        from .infrastructure.telegram.bot import TelethonBotNotifier
 
         bot_client = TgClient(
             session="management_bot",
@@ -216,6 +198,35 @@ def build(settings: Settings | None = None) -> Container:
             use_cases.reject,
             settings,
         )
+        bot_notifier = BotNotifier(
+            TelethonBotNotifier(bot_client, settings.bot_allowed_user_ids)
+        )
+
+    # --- Workers -----------------------------------------------------------
+    workers = Workers(
+        scanner=ScannerWorker(use_cases.scan, use_cases.parse, queue, settings),
+        analyzer=AnalyzerWorker(
+            use_cases.parse,
+            use_cases.dedupe,
+            use_cases.qualify,
+            use_cases.generate,
+            queue,
+            uow_factory,
+            settings,
+            # Без нотификатора черновик молча ждёт в БД, пока оператор сам не
+            # вызовет /pending.
+            notifier=bot_notifier,
+        ),
+        outreach=OutreachWorker(use_cases.send, queue, uow_factory, settings),
+        reply=ReplyWorker(use_cases.process_reply, incoming_queue),
+        followup=FollowupWorker(
+            use_cases.schedule_followup,
+            use_cases.run_followup,
+            queue,
+            uow_factory,
+            settings,
+        ),
+    )
 
     return Container(
         settings=settings,

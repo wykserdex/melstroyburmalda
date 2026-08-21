@@ -72,6 +72,32 @@ class SendMessageUseCase:
             # Idempotency: if already SENT, no-op
             if outreach.status == OutreachStatus.SENT:
                 return outreach.status.value
+
+            # Явный гейт согласования. Сейчас задачу на отправку ставит только
+            # ApproveMessageUseCase, то есть порядок соблюдается неявно — но
+            # одна лишняя постановка задачи (руками, из миграции, из будущего
+            # воркера) отправила бы неодобренный черновик живому человеку.
+            # Дешевле проверить статус здесь, чем извиняться.
+            #
+            # Черновик при этом НЕ помечается FAILED: он остаётся в DRAFTED и
+            # доступен для согласования через бота — отказ отправить не должен
+            # заодно уничтожать кандидата.
+            if outreach.status != OutreachStatus.APPROVED:
+                await log_event(
+                    uow.events,
+                    event_type=EventType.MESSAGE_REJECTED,
+                    entity_type="outreach",
+                    entity_id=outreach.id,
+                    metadata={
+                        "reason": "send_without_approval",
+                        "status": outreach.status.value,
+                    },
+                )
+                await uow.commit()
+                raise PolicyViolation(
+                    "send",
+                    f"outreach {outreach_id} is {outreach.status.value}, expected approved",
+                )
             if outreach.idempotency_key is None:
                 raise PolicyViolation("send", "missing idempotency key")
             existing = await uow.idempotency.get(outreach.idempotency_key.key)

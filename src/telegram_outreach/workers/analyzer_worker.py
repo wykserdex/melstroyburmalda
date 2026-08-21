@@ -34,6 +34,7 @@ class AnalyzerWorker:
         queue: QueuePort,
         uow_factory,
         settings: Settings,
+        notifier=None,
     ) -> None:
         self._parse = parse
         self._dedupe = dedupe
@@ -42,6 +43,7 @@ class AnalyzerWorker:
         self._queue = queue
         self._uow_factory = uow_factory
         self._settings = settings
+        self._notifier = notifier
 
     async def handle(self, task: Task) -> None:
         new_correlation()
@@ -80,6 +82,11 @@ class AnalyzerWorker:
                             await approver.execute(
                                 outreach_id, approved_by="auto", reason="auto_approve", auto=True
                             )
+                        else:
+                            # Ничего не уйдёт, пока оператор не нажмёт Approve —
+                            # поэтому он должен узнать о черновике сам, а не
+                            # обнаружить его когда-нибудь в /pending.
+                            await self._notify_pending(outreach_id)
 
         async with self._uow_factory() as uow:
             assert uow.dlq is not None
@@ -100,7 +107,30 @@ class AnalyzerWorker:
             return
         lead_id = await self._qualify.execute(vacancy_id)
         if lead_id is not None:
-            await self._generate.execute(lead_id)
+            outreach_id = await self._generate.execute(lead_id)
+            if outreach_id is not None:
+                await self._notify_pending(outreach_id)
+
+    async def _notify_pending(self, outreach_id: str) -> None:
+        """Отправить оператору карточку «нашёл X — писать?».
+
+        Уведомление — не критичный путь: если бот выключен или Telegram
+        недоступен, черновик всё равно остаётся в БД и виден через /pending.
+        Поэтому любая ошибка здесь логируется, но не роняет обработку
+        задачи и не приводит к повторной генерации через DLQ.
+        """
+        if self._notifier is None:
+            return
+        try:
+            async with self._uow_factory() as uow:
+                outreach = await uow.outreach.get(outreach_id)
+            if outreach is None:
+                return
+            await self._notifier.pending_outreach(outreach)
+        except Exception as e:  # noqa: BLE001
+            _log.warning(
+                "analyzer_worker.notify_failed", outreach_id=outreach_id, error=str(e)
+            )
 
     async def _is_high_confidence(self, lead_id: str) -> bool:
         async with self._uow_factory() as uow:
