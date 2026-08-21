@@ -174,7 +174,7 @@ def build(settings: Settings | None = None) -> Container:
 
     # --- Workers -----------------------------------------------------------
     workers = Workers(
-        scanner=ScannerWorker(use_cases.scan, queue, settings),
+        scanner=ScannerWorker(use_cases.scan, use_cases.parse, queue, settings),
         analyzer=AnalyzerWorker(
             use_cases.parse,
             use_cases.dedupe,
