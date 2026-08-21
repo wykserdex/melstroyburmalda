@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Application state
+outreach.db
+outreach.db-journal
+*.session
+*.session-journal
+
+# Secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+secrets/
+sessions/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store

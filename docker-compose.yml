@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: outreach
+      POSTGRES_USER: outreach
+      POSTGRES_PASSWORD: outreach
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outreach"]
+      interval: 5s
+      retries: 5
+
+  # Optional: Redis, only if you swap the asyncio queue for ARQ/Celery.
+  # Uncomment when needed.
+  # redis:
+  #   image: redis:7
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+
+volumes:
+  pgdata:
